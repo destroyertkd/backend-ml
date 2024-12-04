@@ -1,5 +1,5 @@
 uvicorn
-python==3.10.0 
+python==3.11
 altair==4.2.2
 attrs==24.2.0
 blinker==1.9.0
