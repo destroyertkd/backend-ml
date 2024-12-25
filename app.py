@@ -163,6 +163,7 @@ def clasificar_comentario():
         }), 201
  except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 # Iniciar servidor
 if __name__ == '__main__':
      app.run(port=5000)
