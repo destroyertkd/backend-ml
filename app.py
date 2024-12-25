@@ -97,71 +97,70 @@ def asignar_puntajecalificacion(clasificacion):
 @app.route('/clasificar', methods=['POST'])
 def clasificar_comentario():
     try:
-        # Obtener datos JSON del cliente
         data = request.json
         print(data)
-        comentarios = data.get("comentarios", [])
         
-        # Validar entrada
-        if not comentarios or not isinstance(comentarios, list):
-            return jsonify({"error": "Debe enviar una lista de comentarios."}), 400
+        # Validar datos requeridos
+        product_id = data.get('product_id')
+        user_id = data.get('user_id')
+        user_comment = data.get('user_comment')
+
+        if not product_id or not user_id or not user_comment:
+            return jsonify({"error": "Todos los campos (product_id, user_id, user_comment) son requeridos"}), 400
         
-          # Preprocesar comentarios
-        resultados = []
-        for item in comentarios:
-            comentario = item.get("user_comment")
-            if comentario:
-                # Preprocesar el comentario
-                comentario_prep = preprocess_text(comentario)
-                
-                # Vectorizar y predecir
-                comentario_tfidf = vectorizer.transform([comentario_prep])
-                prediccion = model.predict(comentario_tfidf)
-                clasificacion = label_encoder.inverse_transform(prediccion)[0]
+        # Generar la fecha actual
+        current_date = datetime.now().strftime('%Y-%m-%d')
+        
+        # Conectar a la base de datos
+        conexion, cursor = obtener_conexion()
+        if not conexion:
+            return jsonify({"error": "No se pudo conectar a la base de datos"}), 500
 
-                # Asignar la calificación en función de la clasificación (1 al 5)
-                puntaje = asignar_puntajecalificacion(clasificacion)
-                
-                # Recoger más información
-                idprodcomment= item.get("idprodcomment", "Id del comentario del producto")
-                product_id= item.get("product_id", "Id del producto")
-                user_id= item.get("user_id","Id del usuario")
-                date_comment=item.get("date_comment","Fecha comentario")
-               
-                # Formar el resultado con la predicción incluida
-                resultados.append({
-                    "idprodcomment":idprodcomment,
-                    "product_id": product_id,
-                    "user_id": user_id,
-                    "user_comment": comentario,
-                    "date_comment":date_comment,
-                    "classification": clasificacion, # Aquí va la predicción
-                    "rating": puntaje  # Aquí va el puntaje
-                })
-                print(resultados)
+        # Insertar comentario en la tabla `product_comment`
+        try:
+            # Inserta el comentario
+            cursor.execute(
+                "INSERT INTO product_comment (product_id, user_id, user_comment, date_comment) VALUES (%s, %s, %s, %s)",
+                (product_id, user_id, user_comment, current_date)
+            )
+            conexion.commit()  # Confirma la transacción
+            # Obtiene el último ID insertado
+            new_comment_id = cursor.lastrowid
+            print(f"Comentario registrado con éxito. ID: {new_comment_id}")
+        except Exception as e:
+            conexion.rollback()
+            return jsonify({"error": f"Error al insertar comentario: {e}"}), 500
 
-                # Conectar a la base de datos
-                conexion, cursor = obtener_conexion()
-                if conexion:
-                    try:
-                        # Insertar los datos en la base de datos
-                        cursor.execute(
-                            "INSERT INTO audit_product_comment (idprodcomment,product_id, user_id, user_comment, classification, rating, date_audit) "
-                            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                            (idprodcomment,product_id, user_id, comentario, clasificacion, puntaje, date_comment)
-                        )
-                        conexion.commit()  # Confirmar cambios
-                        print(f"idprodcomment: {idprodcomment}, Producto ID: {product_id}, Usuario ID: {user_id}, Comentario: {comentario}, Clasificación: {clasificacion}, Fecha: {date_comment}")
-                    except Exception as e:
-                        print(f"Error al insertar en la base de datos: {e}")
-                    finally:
-                        # Cerrar la conexión
-                        conexion.close()
+        # Clasificar comentario
+        comentario_prep = preprocess_text(user_comment)
+        comentario_tfidf = vectorizer.transform([comentario_prep])
+        prediccion = model.predict(comentario_tfidf)
+        clasificacion = label_encoder.inverse_transform(prediccion)[0]
+        puntaje = asignar_puntajecalificacion(clasificacion)
 
-          # Devolver los resultados
-        return jsonify(resultados), 200
-    
-    except Exception as e:
+        # Insertar clasificación en la tabla `audit_product_comment`
+        try:
+            cursor.execute(
+                "INSERT INTO audit_product_comment (idprodcomment, product_id, user_id, user_comment, classification, rating, date_audit) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s);",
+                (new_comment_id, product_id, user_id, user_comment, clasificacion, puntaje, current_date)
+            )
+            conexion.commit()
+            print(f"Clasificación registrada para el comentario {new_comment_id}")
+        except Exception as e:
+            conexion.rollback()
+            return jsonify({"error": f"Error al registrar clasificación: {e}"}), 500
+        finally:
+            conexion.close()
+
+        # Responder con el resultado
+        return jsonify({
+            "message": "Comentario registrado y clasificado con éxito",
+            "comment_id": new_comment_id,
+            "classification": clasificacion,
+            "rating": puntaje
+        }), 201
+ except Exception as e:
         return jsonify({"error": str(e)}), 500
 # Iniciar servidor
 if __name__ == '__main__':
