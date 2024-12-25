@@ -8,6 +8,7 @@ import re
 from flask_cors import CORS  # Importar CORS
 from dotenv import load_dotenv
 import os
+from datetime import datetime
 
 nltk.download('stopwords')
 spanish_stopwords = stopwords.words('spanish')
